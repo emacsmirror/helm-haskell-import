@@ -1,11 +1,11 @@
-;;; helm-haskell-import.el --- haskell utilities with helm
+;;; helm-haskell-import.el --- haskell utilities with helm -*- lexical-binding: t; -*-
 
-;; Copyright (C) 2012 by Syohei YOSHIDA
+;; Copyright (C) 2014 by Syohei YOSHIDA
 
 ;; Author: Syohei YOSHIDA <syohex@gmail.com>
 ;; URL: https://github.com/syohex/emacs-helm-haskell-import
 ;; Version: 0.01
-;; Package-Requires: ((helm "1.0"))
+;; Package-Requires: ((helm "1.0") (cl-lib "0.5"))
 
 ;; This program is free software; you can redistribute it and/or modify
 ;; it under the terms of the GNU General Public License as published by
@@ -27,24 +27,20 @@
 
 ;;; Code:
 
-(eval-when-compile
-  (require 'cl))
-
+(require 'cl-lib)
 (require 'helm)
 
 (defgroup helm-haskell-import nil
   "hoogle with helm interface"
   :group 'helm)
 
-(defun helm-c-haskell-imp-init ()
+(defun helm-haskell--imp-init ()
   (let ((pattern (read-string "Pattern: ")))
     (with-current-buffer (helm-candidate-buffer 'global)
-      (let* ((cmd (format "hoogle %s" pattern))
-             (ret (call-process "hoogle" nil t nil pattern)))
-        (unless (= ret 0)
-          (error "Failed helm-c-haskell-imp-init"))))))
+      (unless (call-process "hoogle" nil t nil pattern)
+        (error "Failed: 'hoogle %s'" pattern)))))
 
-(defun helm-c-haskell-split-candidate (candidate)
+(defun helm-haskell--split-candidate (candidate)
   (let ((regexp "^\\([^ ]+\\) \\([^ ]+\\) :: \\(.+\\)$"))
     (when (string-match regexp candidate)
       (list
@@ -52,7 +48,7 @@
        :function (match-string 2 candidate)
        :type (match-string 3 candidate)))))
 
-(defun helm-c-haskell-search-insert-point ()
+(defun helm-haskell--search-insert-point ()
   (let ((regexp "^\\s-*import\\s-+"))
     (save-excursion
       (goto-char (line-end-position))
@@ -62,49 +58,47 @@
             (point))
         (point-min)))))
 
-(defun helm-c-haskell-imp-construct-inserted (modules)
+(defun helm-haskell--imp-construct-inserted (modules)
   (mapconcat (lambda (m)
                (format "import %s\n" (plist-get m :package)))
                modules ""))
 
-(defun helm-c-haskell-imp-collect-module-infos ()
-  (loop for c in (helm-marked-candidates)
-        when (helm-c-haskell-split-candidate c)
-        collect it))
+(defun helm-haskell--imp-collect-module-infos ()
+  (cl-loop for c in (helm-marked-candidates)
+           when (helm-haskell--split-candidate c)
+           collect it))
 
-(defun helm-c-haskell-imp-check-imported (package)
+(defun helm-haskell--imp-check-imported (package)
   (let ((regexp (format "import\\s-+%s" package)))
     (save-excursion
       (goto-char (line-end-position))
       (re-search-backward regexp nil t))))
 
-(defun helm-c-haskell-imp-filter-not-imported (module-infos)
-  (loop for m in module-infos
-        for package = (plist-get m :package)
-        unless (helm-c-haskell-imp-check-imported package)
-        collect m))
+(defun helm-haskell--imp-filter-not-imported (module-infos)
+  (cl-loop for m in module-infos
+           for package = (plist-get m :package)
+           unless (helm-haskell--imp-check-imported package)
+           collect m))
 
-(defun helm-c-haskell-imp-insert-module (candidate)
-  (let* ((module-infos (helm-c-haskell-imp-collect-module-infos))
-         (not-importeds (helm-c-haskell-imp-filter-not-imported module-infos))
-         (inserted-point (helm-c-haskell-search-insert-point)))
+(defun helm-haskell--imp-insert-module (_candidate)
+  (let* ((module-infos (helm-haskell--imp-collect-module-infos))
+         (not-importeds (helm-haskell--imp-filter-not-imported module-infos))
+         (inserted-point (helm-haskell--search-insert-point)))
     (save-excursion
       (goto-char inserted-point)
-      (insert (helm-c-haskell-imp-construct-inserted not-importeds)))))
+      (insert (helm-haskell--imp-construct-inserted not-importeds)))))
 
-(defvar helm-c-haskell-imp-source
+(defvar helm-haskell--imp-source
   '((name . "helm haskell import")
-    (init . helm-c-haskell-imp-init)
+    (init . helm-haskell--imp-init)
     (candidates-in-buffer)
-    (action . (("Insert Module" . helm-c-haskell-imp-insert-module)))
-    (volatile)
+    (action . (("Insert Module" . helm-haskell--imp-insert-module)))
     (candidate-number-limit . 9999)))
 
 ;;;###autoload
 (defun helm-haskell-import ()
   (interactive)
-  (let ((buf (get-buffer-create "*helm haskell import*")))
-    (helm :sources '(helm-c-haskell-imp-source) :buffer buf)))
+  (helm :sources '(helm-haskell--imp-source) :buffer "*helm haskell import*"))
 
 (provide 'helm-haskell-import)
 
